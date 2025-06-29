@@ -116,7 +116,6 @@ def verify_jwt_token(token: str) -> Optional[str]:
 async def get_user_by_email(email: str):
     user_doc = await users_collection.find_one({"email": email})
     if user_doc:
-        user_doc["id"] = user_doc["_id"]
         return user_doc
     return None
 
@@ -377,7 +376,11 @@ async def create_bathroom_review(
     
     await bathrooms_collection.insert_one(bathroom_doc)
     
-    return bathroom_doc
+    return {
+        "success": True,
+        "message": "Bathroom review uploaded successfully",
+        "bathroom": bathroom_doc
+    }
 
 @app.get("/api/bathrooms")
 async def get_bathrooms():
@@ -402,6 +405,32 @@ async def get_bathrooms():
         })
     
     return bathrooms
+
+@app.delete("/api/bathrooms/{bathroom_id}")
+async def delete_bathroom_review(
+    bathroom_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    # Find the bathroom review
+    bathroom = await bathrooms_collection.find_one({"id": bathroom_id})
+    
+    if not bathroom:
+        raise HTTPException(status_code=404, detail="Bathroom review not found")
+    
+    # Check if user owns this review
+    if bathroom.get("user_id") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own reviews")
+    
+    # Delete the image file
+    image_filename = bathroom['image_url'].split('/')[-1]
+    image_path = f"uploads/{image_filename}"
+    if os.path.exists(image_path):
+        os.remove(image_path)
+    
+    # Delete from database
+    await bathrooms_collection.delete_one({"id": bathroom_id})
+    
+    return {"success": True, "message": "Review deleted successfully"}
 
 @app.get("/api/uploads/{filename}")
 async def get_upload(filename: str):
