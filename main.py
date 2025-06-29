@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 import motor.motor_asyncio
 import bcrypt
@@ -10,7 +11,8 @@ import jwt
 import os
 import uuid
 from datetime import datetime, timedelta
-import json
+import httpx
+from pathlib import Path
 
 # Environment variables
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
@@ -41,32 +43,36 @@ bathrooms_collection = db.bathrooms
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
+# Security
+security = HTTPBearer()
+
 # Pydantic models
 class UserCreate(BaseModel):
-    email: str
+    email: EmailStr
     password: str
-    name: str
+    full_name: str
 
 class UserLogin(BaseModel):
-    email: str
+    email: EmailStr
     password: str
-
-class BathroomReview(BaseModel):
-    sink_rating: int
-    floor_rating: int
-    toilet_rating: int
-    smell_rating: int
-    niceness_rating: int
-    location: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    comments: str
 
 class User(BaseModel):
     id: str
-    email: str
-    name: str
-    
+    email: EmailStr
+    full_name: str
+    profile_picture: Optional[str] = None
+    is_verified: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user: User
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
 class BathroomResponse(BaseModel):
     id: str
     user_id: Optional[str]
@@ -93,7 +99,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_jwt_token(user_id: str) -> str:
     payload = {
-        'user_id': user_id,
+        'sub': user_id,
         'exp': datetime.utcnow() + timedelta(minutes=30)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
@@ -101,10 +107,56 @@ def create_jwt_token(user_id: str) -> str:
 def verify_jwt_token(token: str) -> Optional[str]:
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-        return payload.get('user_id')
+        return payload.get('sub')
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
+        return None
+
+async def get_user_by_email(email: str):
+    user_doc = await users_collection.find_one({"email": email})
+    if user_doc:
+        user_doc["id"] = user_doc["_id"]
+        return user_doc
+    return None
+
+async def get_user_by_id(user_id: str):
+    try:
+        user_doc = await users_collection.find_one({"id": user_id})
+        if user_doc:
+            return user_doc
+        return None
+    except:
+        return None
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        user_id = verify_jwt_token(credentials.credentials)
+        if user_id is None:
+            raise credentials_exception
+    except:
+        raise credentials_exception
+    
+    user = await get_user_by_id(user_id)
+    if user is None:
+        raise credentials_exception
+    return user
+
+async def get_current_user_optional(credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))):
+    if credentials is None:
+        return None
+    try:
+        user_id = verify_jwt_token(credentials.credentials)
+        if user_id is None:
+            return None
+        user = await get_user_by_id(user_id)
+        return user
+    except:
         return None
 
 # Routes
@@ -124,10 +176,11 @@ async def get_config():
         "google_client_id": os.environ.get('GOOGLE_CLIENT_ID', '')
     }
 
-@app.post("/api/register")
+# Auth Routes (what your frontend expects)
+@app.post("/api/auth/register", response_model=Token)
 async def register_user(user_data: UserCreate):
     # Check if user exists
-    existing_user = await users_collection.find_one({"email": user_data.email})
+    existing_user = await get_user_by_email(user_data.email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -138,44 +191,131 @@ async def register_user(user_data: UserCreate):
     user_doc = {
         "id": user_id,
         "email": user_data.email,
-        "password": hashed_password,
-        "name": user_data.name,
-        "created_at": datetime.utcnow().isoformat()
+        "hashed_password": hashed_password,
+        "full_name": user_data.full_name,
+        "is_verified": False,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
     }
     
     await users_collection.insert_one(user_doc)
     
-    # Create JWT token
-    token = create_jwt_token(user_id)
+    # Create access token
+    access_token = create_jwt_token(user_id)
     
-    return {
-        "user": {
-            "id": user_id,
-            "email": user_data.email,
-            "name": user_data.name
-        },
-        "token": token
-    }
+    user_response = User(
+        id=user_id,
+        email=user_data.email,
+        full_name=user_data.full_name,
+        is_verified=False,
+        created_at=user_doc["created_at"],
+        updated_at=user_doc["updated_at"]
+    )
+    
+    return Token(access_token=access_token, token_type="bearer", user=user_response)
 
-@app.post("/api/login")
+@app.post("/api/auth/login", response_model=Token)
 async def login_user(user_data: UserLogin):
     # Find user
-    user = await users_collection.find_one({"email": user_data.email})
-    if not user or not verify_password(user_data.password, user['password']):
+    user = await get_user_by_email(user_data.email)
+    if not user or not verify_password(user_data.password, user['hashed_password']):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     # Create JWT token
-    token = create_jwt_token(user['id'])
+    access_token = create_jwt_token(user['id'])
     
-    return {
-        "user": {
-            "id": user['id'],
-            "email": user['email'],
-            "name": user['name']
-        },
-        "token": token
-    }
+    user_response = User(
+        id=user['id'],
+        email=user['email'],
+        full_name=user['full_name'],
+        profile_picture=user.get('profile_picture'),
+        is_verified=user.get('is_verified', False),
+        created_at=user['created_at'],
+        updated_at=user['updated_at']
+    )
+    
+    return Token(access_token=access_token, token_type="bearer", user=user_response)
 
+@app.get("/api/auth/me", response_model=User)
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    return User(
+        id=current_user["id"],
+        email=current_user["email"],
+        full_name=current_user["full_name"],
+        profile_picture=current_user.get("profile_picture"),
+        is_verified=current_user.get("is_verified", False),
+        created_at=current_user["created_at"],
+        updated_at=current_user["updated_at"]
+    )
+
+@app.post("/api/auth/google", response_model=Token)
+async def google_auth(auth_request: GoogleAuthRequest):
+    try:
+        async with httpx.AsyncClient() as client:
+            token_info_response = await client.get(
+                f'https://oauth2.googleapis.com/tokeninfo?id_token={auth_request.credential}'
+            )
+            
+            if token_info_response.status_code != 200:
+                raise HTTPException(status_code=400, detail="Invalid Google token")
+                
+            user_info = token_info_response.json()
+            
+            # Verify the token is for our app
+            if user_info.get('aud') != os.environ.get('GOOGLE_CLIENT_ID'):
+                raise HTTPException(status_code=400, detail="Token not for this application")
+            
+            email = user_info.get('email')
+            name = user_info.get('name')
+            picture = user_info.get('picture')
+            google_id = user_info.get('sub')
+            
+            if not email or not name:
+                raise HTTPException(status_code=400, detail="Missing required user information")
+            
+            # Check if user exists
+            existing_user = await get_user_by_email(email)
+            
+            if existing_user:
+                user = existing_user
+            else:
+                # Create new user
+                user_id = str(uuid.uuid4())
+                user_doc = {
+                    "id": user_id,
+                    "email": email,
+                    "full_name": name,
+                    "profile_picture": picture,
+                    "google_id": google_id,
+                    "is_verified": True,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow()
+                }
+                
+                await users_collection.insert_one(user_doc)
+                user = user_doc
+            
+            # Create access token
+            access_token = create_jwt_token(user["id"])
+            
+            user_response = User(
+                id=user["id"],
+                email=user["email"],
+                full_name=user["full_name"],
+                profile_picture=user.get("profile_picture"),
+                is_verified=user.get("is_verified", False),
+                created_at=user["created_at"],
+                updated_at=user["updated_at"]
+            )
+            
+            return Token(access_token=access_token, token_type="bearer", user=user_response)
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Google authentication failed: {str(e)}")
+
+# Bathroom Routes
 @app.post("/api/bathrooms")
 async def create_bathroom_review(
     sink_rating: int = Form(...),
@@ -186,41 +326,42 @@ async def create_bathroom_review(
     location: str = Form(...),
     latitude: Optional[float] = Form(None),
     longitude: Optional[float] = Form(None),
-    comments: str = Form(...),
+    comments: str = Form(""),
     image: UploadFile = File(...),
-    authorization: Optional[str] = None
+    current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
-    # Get user info if authenticated
-    user_id = None
-    user_name = None
-    if authorization and authorization.startswith('Bearer '):
-        token = authorization.split(' ')[1]
-        user_id = verify_jwt_token(token)
-        if user_id:
-            user = await users_collection.find_one({"id": user_id})
-            if user:
-                user_name = user['name']
+    # Validate file type
+    if not image.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
     
-    # Save uploaded image
-    image_id = str(uuid.uuid4())
-    image_extension = image.filename.split('.')[-1] if '.' in image.filename else 'jpg'
-    image_filename = f"{image_id}.{image_extension}"
-    image_path = f"uploads/{image_filename}"
-    
-    with open(image_path, "wb") as buffer:
-        content = await image.read()
-        buffer.write(content)
+    # Validate ratings
+    for rating_value in [sink_rating, floor_rating, toilet_rating, smell_rating, niceness_rating]:
+        if rating_value < 1 or rating_value > 5:
+            raise HTTPException(status_code=400, detail="All ratings must be between 1 and 5")
     
     # Calculate overall rating
     overall_rating = (sink_rating + floor_rating + toilet_rating + smell_rating + niceness_rating) / 5
+    
+    # Generate unique filename
+    file_extension = os.path.splitext(image.filename)[1] if image.filename else '.jpg'
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    file_path = f"uploads/{unique_filename}"
+    
+    # Save the uploaded file
+    try:
+        with open(file_path, "wb") as buffer:
+            content = await image.read()
+            buffer.write(content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
     
     # Create bathroom review
     bathroom_id = str(uuid.uuid4())
     bathroom_doc = {
         "id": bathroom_id,
-        "user_id": user_id,
-        "user_name": user_name,
-        "image_url": f"/uploads/{image_filename}",
+        "user_id": current_user["id"] if current_user else None,
+        "user_name": current_user["full_name"] if current_user else None,
+        "image_url": f"/uploads/{unique_filename}",
         "sink_rating": sink_rating,
         "floor_rating": floor_rating,
         "toilet_rating": toilet_rating,
@@ -274,4 +415,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
