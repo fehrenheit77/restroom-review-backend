@@ -39,8 +39,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 
 # Security
 security = HTTPBearer()
 
-# Create the main app without a prefix
-app = FastAPI()
+# Create the main app
+app = FastAPI(title="Loo Review API", version="1.0.0")
 
 # Add CORS middleware FIRST (before any other middleware)
 app.add_middleware(
@@ -113,13 +113,13 @@ class Token(BaseModel):
     token_type: str
     user: User
 
-# Existing Bathroom Models (updated with categorical ratings)
+# Bathroom Models
 class BathroomRatingCategories(BaseModel):
-    sink: int = Field(ge=1, le=5)  # Sink cleanliness and functionality
-    floor: int = Field(ge=1, le=5)  # Floor cleanliness and condition
-    toilet: int = Field(ge=1, le=5)  # Toilet cleanliness and functionality
-    smell: int = Field(ge=1, le=5)  # Odor/smell rating
-    niceness: int = Field(ge=1, le=5)  # Overall ambiance and niceness
+    sink: int = Field(ge=1, le=5)
+    floor: int = Field(ge=1, le=5)
+    toilet: int = Field(ge=1, le=5)
+    smell: int = Field(ge=1, le=5)
+    niceness: int = Field(ge=1, le=5)
 
 class BathroomRating(BaseModel):
     id: str
@@ -213,6 +213,28 @@ def serialize_bathroom(bathroom: dict) -> dict:
         bathroom['timestamp'] = bathroom['timestamp'].isoformat()
     
     return bathroom
+
+# Health check endpoints (before API router)
+@app.get("/")
+async def health_check():
+    db_status = "connected" if db is not None else "not connected"
+    return {
+        "status": "healthy", 
+        "message": "Loo Review API is running",
+        "database": db_status,
+        "version": "1.0.0"
+    }
+
+@app.get("/health")
+async def health_check_detailed():
+    db_status = "connected" if db is not None else "not connected"
+    return {
+        "status": "healthy", 
+        "message": "Loo Review API is running",
+        "database": db_status,
+        "version": "1.0.0",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 # Authentication endpoints
 @api_router.post("/auth/register", response_model=Token)
@@ -336,7 +358,7 @@ async def google_login(token_data: GoogleTokenData):
                     "email": email,
                     "full_name": name or email.split('@')[0],
                     "profile_picture": picture,
-                    "is_verified": True,  # Google accounts are pre-verified
+                    "is_verified": True,
                     "created_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow()
                 }
@@ -524,6 +546,17 @@ async def get_image(filename: str):
         }
     )
 
+# API health check
+@api_router.get("/")
+async def api_health_check():
+    db_status = "connected" if db is not None else "not connected"
+    return {
+        "status": "healthy", 
+        "message": "Loo Review API is running",
+        "database": db_status,
+        "version": "1.0.0"
+    }
+
 # Include the router in the main app
 app.include_router(api_router)
 
@@ -552,26 +585,6 @@ logger = logging.getLogger(__name__)
 async def shutdown_db_client():
     if client:
         client.close()
-
-# Health check endpoint
-@app.get("/")
-async def health_check():
-    db_status = "connected" if db is not None else "not connected"
-    return {
-        "status": "healthy", 
-        "message": "Loo Review API is running",
-        "database": db_status
-    }
-
-# Health check for API prefix
-@api_router.get("/")
-async def api_health_check():
-    db_status = "connected" if db is not None else "not connected"
-    return {
-        "status": "healthy", 
-        "message": "Loo Review API is running",
-        "database": db_status
-    }
 
 if __name__ == "__main__":
     import uvicorn
