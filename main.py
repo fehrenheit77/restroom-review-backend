@@ -24,11 +24,6 @@ import json
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
-
 # Create uploads directory
 UPLOADS_DIR = ROOT_DIR / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
@@ -37,9 +32,9 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT settings
-SECRET_KEY = os.environ.get("SECRET_KEY")
+SECRET_KEY = os.environ.get("SECRET_KEY", "fallback-secret-key-change-in-production")
 ALGORITHM = os.environ.get("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 # Security
 security = HTTPBearer()
@@ -64,6 +59,32 @@ app.add_middleware(
 
 # Add session middleware for OAuth
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+# MongoDB connection (with graceful fallback)
+client = None
+db = None
+
+try:
+    mongo_url = os.environ.get('MONGO_URL')
+    if mongo_url:
+        client = AsyncIOMotorClient(mongo_url)
+        db = client[os.environ.get('DB_NAME', 'bathroom_reviews')]
+        print("✅ MongoDB connected successfully")
+    else:
+        print("⚠️ No MongoDB URL provided - database features disabled")
+except Exception as e:
+    client = None
+    db = None
+    print(f"⚠️ MongoDB connection failed: {e} - database features disabled")
+
+# Database helper function
+async def get_db():
+    if db is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not available. Please configure MongoDB connection."
+        )
+    return db
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -144,6 +165,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    database = await get_db()  # This will raise 503 if DB not available
+    
     try:
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -153,7 +177,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except JWTError:
         raise credentials_exception
     
-    user = await db.users.find_one({"id": user_id})
+    user = await database.users.find_one({"id": user_id})
     if user is None:
         raise credentials_exception
     return user
@@ -193,8 +217,10 @@ def serialize_bathroom(bathroom: dict) -> dict:
 # Authentication endpoints
 @api_router.post("/auth/register", response_model=Token)
 async def register(user_data: UserCreate):
+    database = await get_db()
+    
     # Check if user already exists
-    existing_user = await db.users.find_one({"email": user_data.email})
+    existing_user = await database.users.find_one({"email": user_data.email})
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -216,7 +242,7 @@ async def register(user_data: UserCreate):
         "updated_at": datetime.utcnow()
     }
     
-    await db.users.insert_one(new_user)
+    await database.users.insert_one(new_user)
     
     # Create access token
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -235,8 +261,10 @@ async def register(user_data: UserCreate):
 
 @api_router.post("/auth/login", response_model=Token)
 async def login(user_data: UserLogin):
+    database = await get_db()
+    
     # Find user by email
-    user = await db.users.find_one({"email": user_data.email})
+    user = await database.users.find_one({"email": user_data.email})
     if not user or not verify_password(user_data.password, user['hashed_password']):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -265,6 +293,8 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_user
 
 @api_router.post("/auth/google", response_model=Token)
 async def google_login(token_data: GoogleTokenData):
+    database = await get_db()
+    
     try:
         # Verify the Google credential token
         async with httpx.AsyncClient() as client:
@@ -292,7 +322,7 @@ async def google_login(token_data: GoogleTokenData):
                 )
             
             # Check if user already exists
-            existing_user = await db.users.find_one({"email": email})
+            existing_user = await database.users.find_one({"email": email})
             
             if existing_user:
                 # User exists, log them in
@@ -311,7 +341,7 @@ async def google_login(token_data: GoogleTokenData):
                     "updated_at": datetime.utcnow()
                 }
                 
-                await db.users.insert_one(new_user)
+                await database.users.insert_one(new_user)
                 user_response = serialize_user(new_user)
             
             # Create access token
@@ -352,6 +382,8 @@ async def upload_bathroom_rating(
     comments: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user)
 ):
+    database = await get_db()
+    
     # Validate image
     if not image.content_type or not image.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
@@ -406,7 +438,7 @@ async def upload_bathroom_rating(
     }
     
     # Insert into database
-    await db.bathrooms.insert_one(bathroom_data)
+    await database.bathrooms.insert_one(bathroom_data)
     
     # Return the created bathroom data
     response_data = serialize_bathroom(bathroom_data)
@@ -418,28 +450,36 @@ async def upload_bathroom_rating(
 
 @api_router.get("/bathrooms", response_model=List[BathroomRating])
 async def get_all_bathrooms():
+    database = await get_db()
+    
     bathrooms = []
-    async for bathroom in db.bathrooms.find().sort("timestamp", -1):
+    async for bathroom in database.bathrooms.find().sort("timestamp", -1):
         bathrooms.append(serialize_bathroom(bathroom))
     return bathrooms
 
 @api_router.get("/bathrooms/my", response_model=List[BathroomRating])
 async def get_my_bathrooms(current_user: dict = Depends(get_current_user)):
+    database = await get_db()
+    
     bathrooms = []
-    async for bathroom in db.bathrooms.find({"user_id": current_user['id']}).sort("timestamp", -1):
+    async for bathroom in database.bathrooms.find({"user_id": current_user['id']}).sort("timestamp", -1):
         bathrooms.append(serialize_bathroom(bathroom))
     return bathrooms
 
 @api_router.get("/bathrooms/{bathroom_id}", response_model=BathroomRating)
 async def get_bathroom(bathroom_id: str):
-    bathroom = await db.bathrooms.find_one({"id": bathroom_id})
+    database = await get_db()
+    
+    bathroom = await database.bathrooms.find_one({"id": bathroom_id})
     if not bathroom:
         raise HTTPException(status_code=404, detail="Bathroom not found")
     return serialize_bathroom(bathroom)
 
 @api_router.delete("/bathrooms/{bathroom_id}")
 async def delete_bathroom(bathroom_id: str, current_user: dict = Depends(get_current_user)):
-    bathroom = await db.bathrooms.find_one({"id": bathroom_id})
+    database = await get_db()
+    
+    bathroom = await database.bathrooms.find_one({"id": bathroom_id})
     if not bathroom:
         raise HTTPException(status_code=404, detail="Bathroom not found")
     
@@ -457,7 +497,7 @@ async def delete_bathroom(bathroom_id: str, current_user: dict = Depends(get_cur
         print(f"Warning: Failed to delete image file: {e}")
     
     # Delete from database
-    await db.bathrooms.delete_one({"id": bathroom_id})
+    await database.bathrooms.delete_one({"id": bathroom_id})
     
     return {"success": True, "message": "Bathroom rating deleted successfully"}
 
@@ -510,17 +550,28 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    if client:
+        client.close()
 
 # Health check endpoint
 @app.get("/")
 async def health_check():
-    return {"status": "healthy", "message": "Loo Review API is running"}
+    db_status = "connected" if db is not None else "not connected"
+    return {
+        "status": "healthy", 
+        "message": "Loo Review API is running",
+        "database": db_status
+    }
 
 # Health check for API prefix
 @api_router.get("/")
 async def api_health_check():
-    return {"status": "healthy", "message": "Loo Review API is running"}
+    db_status = "connected" if db is not None else "not connected"
+    return {
+        "status": "healthy", 
+        "message": "Loo Review API is running",
+        "database": db_status
+    }
 
 if __name__ == "__main__":
     import uvicorn
