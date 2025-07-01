@@ -381,9 +381,28 @@ async def create_bathroom_review(
         "timestamp": datetime.utcnow().isoformat()
     }
     
-    await bathrooms_collection.insert_one(bathroom_doc)
-    
-    return bathroom_doc
+   await bathrooms_collection.insert_one(bathroom_doc)
+
+# Create a clean response without MongoDB's _id field
+response_doc = {
+    "id": bathroom_doc["id"],
+    "user_id": bathroom_doc.get("user_id"),
+    "user_name": bathroom_doc.get("user_name"),
+    "image_url": bathroom_doc["image_url"],
+    "sink_rating": bathroom_doc["sink_rating"],
+    "floor_rating": bathroom_doc["floor_rating"],
+    "toilet_rating": bathroom_doc["toilet_rating"],
+    "smell_rating": bathroom_doc["smell_rating"],
+    "niceness_rating": bathroom_doc["niceness_rating"],
+    "overall_rating": bathroom_doc["overall_rating"],
+    "location": bathroom_doc["location"],
+    "latitude": bathroom_doc.get("latitude"),
+    "longitude": bathroom_doc.get("longitude"),
+    "comments": bathroom_doc["comments"],
+    "timestamp": bathroom_doc["timestamp"]
+}
+
+return response_doc
 
 @app.get("/api/bathrooms")
 async def get_bathrooms():
