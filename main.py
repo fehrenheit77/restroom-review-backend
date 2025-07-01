@@ -1,8 +1,3 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, Form, HTTPException, Depends, status, Request, Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -50,6 +45,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000", 
         "https://restroom-review-frontend-production.up.railway.app",
+        "https://*.railway.app",
         "https://*.up.railway.app",
         "*"
     ],
@@ -560,7 +556,7 @@ async def api_health_check():
 # Include the router in the main app
 app.include_router(api_router)
 
-# Add CORS preflight handler
+# Add CORS preflight handler for all paths
 @app.options("/{full_path:path}")
 async def preflight_handler(request: Request, full_path: str):
     return Response(
@@ -573,6 +569,16 @@ async def preflight_handler(request: Request, full_path: str):
             "Access-Control-Allow-Credentials": "true"
         }
     )
+
+# Additional CORS handler for API routes specifically
+@app.middleware("http")
+async def cors_handler(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 # Configure logging
 logging.basicConfig(
