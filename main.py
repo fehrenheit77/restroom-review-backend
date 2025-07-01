@@ -25,7 +25,13 @@ app = FastAPI(title="Restroom Review API", version="1.0.0")
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://restroom-review-frontend-production.up.railway.app",
+        "https://*.up.railway.app",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "*"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -413,5 +419,5 @@ async def get_upload(filename: str):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT"))
     uvicorn.run(app, host="0.0.0.0", port=port)
