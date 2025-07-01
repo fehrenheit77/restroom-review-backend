@@ -417,6 +417,13 @@ async def get_upload(filename: str):
     else:
         raise HTTPException(status_code=404, detail="File not found")
 
+# Add this near the end of your file, before the if __name__ == "__main__": line
+@app.options("/{full_path:path}")
+async def options_handler(request, full_path: str):
+    return {
+        "message": "OK"
+    }
+    
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT"))
