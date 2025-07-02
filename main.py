@@ -105,7 +105,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_jwt_token(user_id: str) -> str:
     payload = {
-        'sub': user_id,
+        'sub': user_id,  # Changed from 'user_id' to 'sub' (standard JWT claim)
         'exp': datetime.utcnow() + timedelta(minutes=30)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
@@ -113,7 +113,7 @@ def create_jwt_token(user_id: str) -> str:
 def verify_jwt_token(token: str) -> Optional[str]:
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-        return payload.get('sub')
+        return payload.get('sub')  # Changed to standard 'sub' claim
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
@@ -122,7 +122,9 @@ def verify_jwt_token(token: str) -> Optional[str]:
 async def get_user_by_email(email: str):
     user_doc = await users_collection.find_one({"email": email})
     if user_doc:
-        user_doc["id"] = user_doc["_id"]
+        # If the user has a custom 'id' field, use it; otherwise, convert _id to string
+        if "id" not in user_doc:
+            user_doc["id"] = str(user_doc["_id"])
         return user_doc
     return None
 
@@ -222,25 +224,32 @@ async def register_user(user_data: UserCreate):
 
 @app.post("/api/auth/login", response_model=Token)
 async def login_user(user_data: UserLogin):
-    # Find user
-    user = await get_user_by_email(user_data.email)
-    if not user or not verify_password(user_data.password, user['hashed_password']):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    # Create JWT token
-    access_token = create_jwt_token(user['id'])
-    
-    user_response = User(
-        id=user['id'],
-        email=user['email'],
-        full_name=user['full_name'],
-        profile_picture=user.get('profile_picture'),
-        is_verified=user.get('is_verified', False),
-        created_at=user['created_at'],
-        updated_at=user['updated_at']
-    )
-    
-    return Token(access_token=access_token, token_type="bearer", user=user_response)
+    try:
+        # Find user
+        user = await get_user_by_email(user_data.email)
+        
+        if not user or not verify_password(user_data.password, user['hashed_password']):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # Create JWT token
+        access_token = create_jwt_token(user['id'])
+        
+        user_response = User(
+            id=user['id'],
+            email=user['email'],
+            full_name=user['full_name'],
+            profile_picture=user.get('profile_picture'),
+            is_verified=user.get('is_verified', False),
+            created_at=user['created_at'],
+            updated_at=user['updated_at']
+        )
+        
+        return Token(access_token=access_token, token_type="bearer", user=user_response)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
 @app.get("/api/auth/me", response_model=User)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
@@ -299,7 +308,11 @@ async def google_auth(auth_request: GoogleAuthRequest):
                 }
                 
                 await users_collection.insert_one(user_doc)
-                user = user_doc
+
+            # Remove the MongoDB _id field to avoid serialization issues
+            if "_id" in user_doc:
+            del user_doc["_id"]
+            user = user_doc
             
             # Create access token
             access_token = create_jwt_token(user["id"])
