@@ -312,7 +312,7 @@ async def google_auth(auth_request: GoogleAuthRequest):
             # Remove the MongoDB _id field to avoid serialization issues
             if "_id" in user_doc:
                 del user_doc["_id"]
-                    user = user_doc
+                user = user_doc
             
             # Create access token
             access_token = create_jwt_token(user["id"])
