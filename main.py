@@ -318,11 +318,11 @@ async def google_auth(auth_request: GoogleAuthRequest):
                 # Set user to the clean document
                 user = user_doc
             
-            # Create access token
-            access_token = create_jwt_token(user["id"])
+                # Create access token
+                access_token = create_jwt_token(user["id"])
             
-            # Create user response
-            user_response = User(
+                # Create user response
+                user_response = User(
                 id=user["id"],
                 email=user["email"],
                 full_name=user["full_name"],
@@ -330,17 +330,16 @@ async def google_auth(auth_request: GoogleAuthRequest):
                 is_verified=user.get("is_verified", False),
                 created_at=user["created_at"],
                 updated_at=user["updated_at"]
-            )
+                )
             
             return Token(access_token=access_token, token_type="bearer", user=user_response)
             
-            except HTTPException:
-                raise
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Google authentication failed: {str(e)}")
-                
-                
+    except HTTPException:
+          raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Google authentication failed: {str(e)}")
 
+        
             # Remove the MongoDB _id field to avoid serialization issues
             if "_id" in user_doc:
                 del user_doc["_id"]
