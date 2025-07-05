@@ -10,6 +10,7 @@ import bcrypt
 import jwt
 import os
 import uuid
+import base64
 from datetime import datetime, timedelta
 import httpx
 from pathlib import Path
@@ -45,9 +46,10 @@ db = client[DATABASE_NAME]
 users_collection = db.users
 bathrooms_collection = db.bathrooms
 
-# Create uploads directory
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+# Create uploads directory and serve static files
+os.makedirs("/app/backend/uploads", exist_ok=True)
+os.makedirs("/app/railway-deployment/static/uploads", exist_ok=True)
+app.mount("/static", StaticFiles(directory="/app/railway-deployment/static"), name="static")
 
 # Security
 security = HTTPBearer()
@@ -372,13 +374,20 @@ async def create_bathroom_review(
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = f"uploads/{unique_filename}"
     
-    # Save the uploaded file
-    try:
-        with open(file_path, "wb") as buffer:
-            content = await image.read()
-            buffer.write(content)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
+   # Save the uploaded file to both locations
+backend_file_path = f"/app/backend/uploads/{unique_filename}"
+static_file_path = f"/app/railway-deployment/static/uploads/{unique_filename}"
+
+try:
+    content = await image.read()
+    with open(backend_file_path, "wb") as buffer:
+        buffer.write(content)
+    
+    # Also copy to static directory for serving
+    with open(static_file_path, "wb") as buffer:
+        buffer.write(content)
+except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
     
     # Create bathroom review
     bathroom_id = str(uuid.uuid4())
@@ -386,7 +395,7 @@ async def create_bathroom_review(
         "id": bathroom_id,
         "user_id": current_user["id"] if current_user else None,
         "user_name": current_user["full_name"] if current_user else None,
-        "image_url": f"/uploads/{unique_filename}",
+        "image_url": f"/static/uploads/{unique_filename}",
         "sink_rating": sink_rating,
         "floor_rating": floor_rating,
         "toilet_rating": toilet_rating,
