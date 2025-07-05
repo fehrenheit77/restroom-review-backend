@@ -385,7 +385,7 @@ try:
     # Also copy to static directory for serving
     with open(static_file_path, "wb") as buffer:
         buffer.write(content)
-  except Exception as e:
+    except Exception as e:
     raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
     
     # Create bathroom review
