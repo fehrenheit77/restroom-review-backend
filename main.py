@@ -375,18 +375,18 @@ async def create_bathroom_review(
     file_path = f"uploads/{unique_filename}"
     
    # Save the uploaded file to both locations
-backend_file_path = f"/app/backend/uploads/{unique_filename}"
-static_file_path = f"/app/railway-deployment/static/uploads/{unique_filename}"
-  try:
-    content = await image.read()
-    with open(backend_file_path, "wb") as buffer:
+   backend_file_path = f"/app/backend/uploads/{unique_filename}"
+   static_file_path = f"/app/railway-deployment/static/uploads/{unique_filename}"
+    try:
+      content = await image.read()
+      with open(backend_file_path, "wb") as buffer:
         buffer.write(content)
     
     # Also copy to static directory for serving
-    with open(static_file_path, "wb") as buffer:
+      with open(static_file_path, "wb") as buffer:
         buffer.write(content)
-  except Exception as e:
-    raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
+    except Exception as e:
+      raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
     
     # Create bathroom review
     bathroom_id = str(uuid.uuid4())
