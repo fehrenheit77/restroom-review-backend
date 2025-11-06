@@ -1,12 +1,3 @@
-I can see the main.py file content, but I'm unable to access the App.js file directly. Could you please paste the App.js content here so I can add the Report Content System to both files? 
-
-Alternatively, you could:
-
-1. **Copy the App.js content** and paste it in your next message
-2. Or I can provide you with the **updated main.py** file now, and then update App.js once you provide it
-
-Here's the **Updated main.py** file with the Report Content System added:
-Action: file_editor create /tmp/main.py --file-text "from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
