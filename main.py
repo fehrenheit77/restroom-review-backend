@@ -1,4 +1,12 @@
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, status
+I can see the main.py file content, but I'm unable to access the App.js file directly. Could you please paste the App.js content here so I can add the Report Content System to both files? 
+
+Alternatively, you could:
+
+1. **Copy the App.js content** and paste it in your next message
+2. Or I can provide you with the **updated main.py** file now, and then update App.js once you provide it
+
+Here's the **Updated main.py** file with the Report Content System added:
+Action: file_editor create /tmp/main.py --file-text "from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -21,21 +29,21 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production'
 DATABASE_NAME = os.environ.get('DATABASE_NAME', 'restroom_review')
 
 # FastAPI app
-app = FastAPI(title="Restroom Review API", version="1.0.0")
+app = FastAPI(title=\"Restroom Review API\", version=\"1.0.0\")
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://restroom-review-frontend-production.up.railway.app",
-        "https://*.up.railway.app",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "*"
+        \"https://restroom-review-frontend-production.up.railway.app\",
+        \"https://*.up.railway.app\",
+        \"http://localhost:3000\",
+        \"http://127.0.0.1:3000\",
+        \"*\"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=[\"*\"],
+    allow_headers=[\"*\"]
 )
 
 # MongoDB client
@@ -45,11 +53,12 @@ db = client[DATABASE_NAME]
 # Collections
 users_collection = db.users
 bathrooms_collection = db.bathrooms
+reports_collection = db.reports
 
 # Create uploads directory and serve static files
-os.makedirs("/app/backend/uploads", exist_ok=True)
-os.makedirs("/app/railway-deployment/static/uploads", exist_ok=True)
-app.mount("/static", StaticFiles(directory="/app/railway-deployment/static"), name="static")
+os.makedirs(\"/app/backend/uploads\", exist_ok=True)
+os.makedirs(\"/app/railway-deployment/static/uploads\", exist_ok=True)
+app.mount(\"/static\", StaticFiles(directory=\"/app/railway-deployment/static\"), name=\"static\")
 
 # Security
 security = HTTPBearer()
@@ -100,16 +109,32 @@ class BathroomResponse(BaseModel):
     longitude: Optional[float]
     comments: str
     timestamp: str
-    
+
 class TermsAcceptance(BaseModel):
     accept_terms: bool
-    terms_version: str = "1.0"
+    terms_version: str = \"1.0\"
 
 class TermsResponse(BaseModel):
     terms_text: str
     version: str
     last_updated: str
-    
+
+class ReportRequest(BaseModel):
+    content_type: str  # \"bathroom\" or \"user\"
+    content_id: str
+    reason: str
+    description: Optional[str] = None
+
+class ReportResponse(BaseModel):
+    id: str
+    content_type: str
+    content_id: str
+    reported_by: str
+    reason: str
+    description: Optional[str]
+    status: str
+    created_at: str
+
 # Helper functions
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -134,17 +159,17 @@ def verify_jwt_token(token: str) -> Optional[str]:
         return None
 
 async def get_user_by_email(email: str):
-    user_doc = await users_collection.find_one({"email": email})
+    user_doc = await users_collection.find_one({\"email\": email})
     if user_doc:
         # If the user has a custom 'id' field, use it; otherwise, convert _id to string
-        if "id" not in user_doc:
-            user_doc["id"] = str(user_doc["_id"])
+        if \"id\" not in user_doc:
+            user_doc[\"id\"] = str(user_doc[\"_id\"])
         return user_doc
     return None
 
 async def get_user_by_id(user_id: str):
     try:
-        user_doc = await users_collection.find_one({"id": user_id})
+        user_doc = await users_collection.find_one({\"id\": user_id})
         if user_doc:
             return user_doc
         return None
@@ -154,8 +179,8 @@ async def get_user_by_id(user_id: str):
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
+        detail=\"Could not validate credentials\",
+        headers={\"WWW-Authenticate\": \"Bearer\"},
     )
     try:
         user_id = verify_jwt_token(credentials.credentials)
@@ -163,7 +188,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             raise credentials_exception
     except:
         raise credentials_exception
-    
+
     user = await get_user_by_id(user_id)
     if user is None:
         raise credentials_exception
@@ -182,25 +207,25 @@ async def get_current_user_optional(credentials: Optional[HTTPAuthorizationCrede
         return None
 
 # Routes
-@app.get("/")
+@app.get(\"/\")
 async def root():
-    return {"message": "Restroom Review API"}
+    return {\"message\": \"Restroom Review API\"}
 
-@app.get("/api/")
+@app.get(\"/api/\")
 async def api_root():
-    return {"message": "Restroom Review API"}
+    return {\"message\": \"Restroom Review API\"}
 
-@app.get("/api/config")
+@app.get(\"/api/config\")
 async def get_config():
     return {
-        "message": "Restroom Review API Configuration",
-        "google_maps_api_key": os.environ.get('GOOGLE_MAPS_API_KEY', ''),
-        "google_client_id": os.environ.get('GOOGLE_CLIENT_ID', '')
+        \"message\": \"Restroom Review API Configuration\",
+        \"google_maps_api_key\": os.environ.get('GOOGLE_MAPS_API_KEY', ''),
+        \"google_client_id\": os.environ.get('GOOGLE_CLIENT_ID', '')
     }
 
-@app.get("/api/terms", response_model=TermsResponse)
+@app.get(\"/api/terms\", response_model=TermsResponse)
 async def get_terms():
-    terms_text = """
+    terms_text = \"\"\"
 RESTROOM REVIEW TERMS OF SERVICE
 
 Last Updated: July 2025
@@ -251,96 +276,159 @@ We may update these terms. Continued use constitutes acceptance of updated terms
 Report violations or concerns through our in-app reporting system.
 
 By using Restroom Review, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service.
-"""
-    
+\"\"\"
+
     return TermsResponse(
         terms_text=terms_text,
-        version="1.0",
-        last_updated="July 2025"
+        version=\"1.0\",
+        last_updated=\"July 2025\"
     )
 
-@app.post("/api/terms/accept")
+@app.post(\"/api/terms/accept\")
 async def accept_terms(
     terms_data: TermsAcceptance,
     current_user: dict = Depends(get_current_user)
 ):
     if not terms_data.accept_terms:
-        raise HTTPException(status_code=400, detail="Terms must be accepted")
-    
+        raise HTTPException(status_code=400, detail=\"Terms must be accepted\")
+
     # Update user's terms acceptance
     await users_collection.update_one(
-        {"id": current_user["id"]},
+        {\"id\": current_user[\"id\"]},
         {
-            "$set": {
-                "terms_accepted": True,
-                "terms_accepted_date": datetime.utcnow(),
-                "terms_version": terms_data.terms_version,
-                "updated_at": datetime.utcnow()
+            \"$set\": {
+                \"terms_accepted\": True,
+                \"terms_accepted_date\": datetime.utcnow(),
+                \"terms_version\": terms_data.terms_version,
+                \"updated_at\": datetime.utcnow()
             }
         }
     )
+
+    return {\"message\": \"Terms accepted successfully\"}
+
+@app.post(\"/api/reports\", response_model=ReportResponse)
+async def create_report(
+    report_data: ReportRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    # Validate content exists
+    if report_data.content_type == \"bathroom\":
+        content = await bathrooms_collection.find_one({\"id\": report_data.content_id})
+        if not content:
+            raise HTTPException(status_code=404, detail=\"Bathroom not found\")
+    elif report_data.content_type == \"user\":
+        content = await users_collection.find_one({\"id\": report_data.content_id})
+        if not content:
+            raise HTTPException(status_code=404, detail=\"User not found\")
+    else:
+        raise HTTPException(status_code=400, detail=\"Invalid content type\")
     
-    return {"message": "Terms accepted successfully"}
+    # Create report
+    report_id = str(uuid.uuid4())
+    report_doc = {
+        \"id\": report_id,
+        \"content_type\": report_data.content_type,
+        \"content_id\": report_data.content_id,
+        \"reported_by\": current_user[\"id\"],
+        \"reporter_name\": current_user[\"full_name\"],
+        \"reason\": report_data.reason,
+        \"description\": report_data.description,
+        \"status\": \"pending\",
+        \"created_at\": datetime.utcnow(),
+        \"updated_at\": datetime.utcnow()
+    }
+    
+    await reports_collection.insert_one(report_doc)
+    
+    return ReportResponse(
+        id=report_id,
+        content_type=report_data.content_type,
+        content_id=report_data.content_id,
+        reported_by=current_user[\"full_name\"],
+        reason=report_data.reason,
+        description=report_data.description,
+        status=\"pending\",
+        created_at=report_doc[\"created_at\"].isoformat()
+    )
+
+@app.get(\"/api/reports\")
+async def get_reports(current_user: dict = Depends(get_current_user)):
+    # For now, only return reports made by the current user
+    # Later we'll add admin functionality
+    reports = []
+    async for report in reports_collection.find({\"reported_by\": current_user[\"id\"]}).sort(\"created_at\", -1):
+        reports.append({
+            \"id\": report[\"id\"],
+            \"content_type\": report[\"content_type\"],
+            \"content_id\": report[\"content_id\"],
+            \"reason\": report[\"reason\"],
+            \"description\": report.get(\"description\"),
+            \"status\": report[\"status\"],
+            \"created_at\": report[\"created_at\"].isoformat()
+        })
+    
+    return reports
 
 # Auth Routes (what your frontend expects)
-@app.post("/api/auth/register", response_model=Token)
+@app.post(\"/api/auth/register\", response_model=Token)
 async def register_user(user_data: UserCreate):
     # Check if user accepts terms
     if not user_data.accept_terms:
-        raise HTTPException(status_code=400, detail="You must accept the Terms of Service to create an account")
-    
+        raise HTTPException(status_code=400, detail=\"You must accept the Terms of Service to create an account\")
+
     # Check if user exists
     existing_user = await get_user_by_email(user_data.email)
     if existing_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
+        raise HTTPException(status_code=400, detail=\"Email already registered\")
+
     # Create user
     user_id = str(uuid.uuid4())
     hashed_password = hash_password(user_data.password)
-    
+
     user_doc = {
-        "id": user_id,
-        "email": user_data.email,
-        "hashed_password": hashed_password,
-        "full_name": user_data.full_name,
-        "is_verified": False,
-        "terms_accepted": True,
-        "terms_accepted_date": datetime.utcnow(),
-        "terms_version": "1.0",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        \"id\": user_id,
+        \"email\": user_data.email,
+        \"hashed_password\": hashed_password,
+        \"full_name\": user_data.full_name,
+        \"is_verified\": False,
+        \"terms_accepted\": True,
+        \"terms_accepted_date\": datetime.utcnow(),
+        \"terms_version\": \"1.0\",
+        \"created_at\": datetime.utcnow(),
+        \"updated_at\": datetime.utcnow()
     }
-    
+
     await users_collection.insert_one(user_doc)
-    
+
     # Create access token
     access_token = create_jwt_token(user_id)
-    
+
     user_response = User(
         id=user_id,
         email=user_data.email,
         full_name=user_data.full_name,
         is_verified=False,
         terms_accepted=True,
-        terms_accepted_date=user_doc["terms_accepted_date"],
-        created_at=user_doc["created_at"],
-        updated_at=user_doc["updated_at"]
+        terms_accepted_date=user_doc[\"terms_accepted_date\"],
+        created_at=user_doc[\"created_at\"],
+        updated_at=user_doc[\"updated_at\"]
     )
-    
-    return Token(access_token=access_token, token_type="bearer", user=user_response)
 
-@app.post("/api/auth/login", response_model=Token)
+    return Token(access_token=access_token, token_type=\"bearer\", user=user_response)
+
+@app.post(\"/api/auth/login\", response_model=Token)
 async def login_user(user_data: UserLogin):
     try:
         # Find user
         user = await get_user_by_email(user_data.email)
-        
+
         if not user or not verify_password(user_data.password, user['hashed_password']):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        
+            raise HTTPException(status_code=401, detail=\"Invalid credentials\")
+
         # Create JWT token
         access_token = create_jwt_token(user['id'])
-        
+
         user_response = User(
             id=user['id'],
             email=user['email'],
@@ -350,57 +438,57 @@ async def login_user(user_data: UserLogin):
             created_at=user['created_at'],
             updated_at=user['updated_at']
         )
-        
-        return Token(access_token=access_token, token_type="bearer", user=user_response)
-        
+
+        return Token(access_token=access_token, token_type=\"bearer\", user=user_response)
+
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f\"Login failed: {str(e)}\")
 
-@app.get("/api/auth/me", response_model=User)
-@app.get("/api/auth/me", response_model=User)
+@app.get(\"/api/auth/me\", response_model=User)
+@app.get(\"/api/auth/me\", response_model=User)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     return User(
-        id=current_user["id"],
-        email=current_user["email"],
-        full_name=current_user["full_name"],
-        profile_picture=current_user.get("profile_picture"),
-        is_verified=current_user.get("is_verified", False),
-        terms_accepted=current_user.get("terms_accepted", False),
-        terms_accepted_date=current_user.get("terms_accepted_date"),
-        created_at=current_user["created_at"],
-        updated_at=current_user["updated_at"]
+        id=current_user[\"id\"],
+        email=current_user[\"email\"],
+        full_name=current_user[\"full_name\"],
+        profile_picture=current_user.get(\"profile_picture\"),
+        is_verified=current_user.get(\"is_verified\", False),
+        terms_accepted=current_user.get(\"terms_accepted\", False),
+        terms_accepted_date=current_user.get(\"terms_accepted_date\"),
+        created_at=current_user[\"created_at\"],
+        updated_at=current_user[\"updated_at\"]
     )
 
-@app.post("/api/auth/google", response_model=Token)
+@app.post(\"/api/auth/google\", response_model=Token)
 async def google_auth(auth_request: GoogleAuthRequest):
     try:
         async with httpx.AsyncClient() as client:
             token_info_response = await client.get(
                 f'https://oauth2.googleapis.com/tokeninfo?id_token={auth_request.credential}'
             )
-            
+
             if token_info_response.status_code != 200:
-                raise HTTPException(status_code=400, detail="Invalid Google token")
-                
+                raise HTTPException(status_code=400, detail=\"Invalid Google token\")
+
             user_info = token_info_response.json()
-            
+
             # Verify the token is for our app
             if user_info.get('aud') != os.environ.get('GOOGLE_CLIENT_ID'):
-                raise HTTPException(status_code=400, detail="Token not for this application")
-            
+                raise HTTPException(status_code=400, detail=\"Token not for this application\")
+
             email = user_info.get('email')
             name = user_info.get('name')
             picture = user_info.get('picture')
             google_id = user_info.get('sub')
-            
+
             if not email or not name:
-                raise HTTPException(status_code=400, detail="Missing required user information")
-            
+                raise HTTPException(status_code=400, detail=\"Missing required user information\")
+
             # Check if user exists
             existing_user = await get_user_by_email(email)
-            
+
             if existing_user:
                 # User already exists, use existing user
                 user = existing_user
@@ -408,50 +496,49 @@ async def google_auth(auth_request: GoogleAuthRequest):
                 # Create new user
                 user_id = str(uuid.uuid4())
                 user_doc = {
-                    "id": user_id,
-                    "email": email,
-                    "full_name": name,
-                    "profile_picture": picture,
-                    "google_id": google_id,
-                    "is_verified": True,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow()
+                    \"id\": user_id,
+                    \"email\": email,
+                    \"full_name\": name,
+                    \"profile_picture\": picture,
+                    \"google_id\": google_id,
+                    \"is_verified\": True,
+                    \"created_at\": datetime.utcnow(),
+                    \"updated_at\": datetime.utcnow()
                 }
-                
+
                 # Insert into database
                 result = await users_collection.insert_one(user_doc)
-                    
+
                 # Remove the MongoDB _id field to avoid serialization issues
-                if "_id" in user_doc:
-                    del user_doc["_id"]
-                    
+                if \"_id\" in user_doc:
+                    del user_doc[\"_id\"]
+
                 # Set user to the clean document
                 user = user_doc
-            
+
             # Create access token
-            access_token = create_jwt_token(user["id"])
-            
+            access_token = create_jwt_token(user[\"id\"])
+
             # Create user response
             user_response = User(
-                id=user["id"],
-                email=user["email"],
-                full_name=user["full_name"],
-                profile_picture=user.get("profile_picture"),
-                is_verified=user.get("is_verified", False),
-                created_at=user["created_at"],
-                updated_at=user["updated_at"]
+                id=user[\"id\"],
+                email=user[\"email\"],
+                full_name=user[\"full_name\"],
+                profile_picture=user.get(\"profile_picture\"),
+                is_verified=user.get(\"is_verified\", False),
+                created_at=user[\"created_at\"],
+                updated_at=user[\"updated_at\"]
             )
-            
-            return Token(access_token=access_token, token_type="bearer", user=user_response)
-            
+
+            return Token(access_token=access_token, token_type=\"bearer\", user=user_response)
+
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Google authentication failed: {str(e)}")
-
+        raise HTTPException(status_code=400, detail=f\"Google authentication failed: {str(e)}\")
 
 # Bathroom Routes
-@app.post("/api/bathrooms")
+@app.post(\"/api/bathrooms\")
 async def create_bathroom_review(
     sink_rating: int = Form(...),
     floor_rating: int = Form(...),
@@ -461,125 +548,124 @@ async def create_bathroom_review(
     location: str = Form(...),
     latitude: Optional[float] = Form(None),
     longitude: Optional[float] = Form(None),
-    comments: str = Form(""),
+    comments: str = Form(\"\"),
     image: UploadFile = File(...),
     current_user: Optional[dict] = Depends(get_current_user_optional)
 ):
     # Validate file type
     if not image.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
+        raise HTTPException(status_code=400, detail=\"File must be an image\")
+
     # Validate ratings
     for rating_value in [sink_rating, floor_rating, toilet_rating, smell_rating, niceness_rating]:
         if rating_value < 1 or rating_value > 5:
-            raise HTTPException(status_code=400, detail="All ratings must be between 1 and 5")
-    
+            raise HTTPException(status_code=400, detail=\"All ratings must be between 1 and 5\")
+
     # Calculate overall rating
     overall_rating = (sink_rating + floor_rating + toilet_rating + smell_rating + niceness_rating) / 5
-    
+
     # Generate unique filename
     file_extension = os.path.splitext(image.filename)[1] if image.filename else '.jpg'
-    unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = f"uploads/{unique_filename}"
-    
-  # Save the uploaded file to both locations
-    backend_file_path = f"/app/backend/uploads/{unique_filename}"
-    static_file_path = f"/app/railway-deployment/static/uploads/{unique_filename}"
-    
+    unique_filename = f\"{uuid.uuid4()}{file_extension}\"
+    file_path = f\"uploads/{unique_filename}\"
+  
+    # Save the uploaded file to both locations
+    backend_file_path = f\"/app/backend/uploads/{unique_filename}\"
+    static_file_path = f\"/app/railway-deployment/static/uploads/{unique_filename}\"
+
     try:
         content = await image.read()
-        with open(backend_file_path, "wb") as buffer:
+        with open(backend_file_path, \"wb\") as buffer:
             buffer.write(content)
-        
+
         # Also copy to static directory for serving
-        with open(static_file_path, "wb") as buffer:
+        with open(static_file_path, \"wb\") as buffer:
             buffer.write(content)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
-    
+        raise HTTPException(status_code=500, detail=f\"Failed to save image: {str(e)}\")
+
     # Create bathroom review
     bathroom_id = str(uuid.uuid4())
     bathroom_doc = {
-        "id": bathroom_id,
-        "user_id": current_user["id"] if current_user else None,
-        "user_name": current_user["full_name"] if current_user else None,
-        "image_url": f"/static/uploads/{unique_filename}",
-        "sink_rating": sink_rating,
-        "floor_rating": floor_rating,
-        "toilet_rating": toilet_rating,
-        "smell_rating": smell_rating,
-        "niceness_rating": niceness_rating,
-        "overall_rating": round(overall_rating, 1),
-        "location": location,
-        "latitude": latitude,
-        "longitude": longitude,
-        "comments": comments,
-        "timestamp": datetime.utcnow().isoformat()
+        \"id\": bathroom_id,
+        \"user_id\": current_user[\"id\"] if current_user else None,
+        \"user_name\": current_user[\"full_name\"] if current_user else None,
+        \"image_url\": f\"/static/uploads/{unique_filename}\",
+        \"sink_rating\": sink_rating,
+        \"floor_rating\": floor_rating,
+        \"toilet_rating\": toilet_rating,
+        \"smell_rating\": smell_rating,
+        \"niceness_rating\": niceness_rating,
+        \"overall_rating\": round(overall_rating, 1),
+        \"location\": location,
+        \"latitude\": latitude,
+        \"longitude\": longitude,
+        \"comments\": comments,
+        \"timestamp\": datetime.utcnow().isoformat()
     }
-    
+
     await bathrooms_collection.insert_one(bathroom_doc)
-    
+
     # Create a clean response without MongoDB's _id field
     response_doc = {
-        "id": bathroom_doc["id"],
-        "user_id": bathroom_doc.get("user_id"),
-        "user_name": bathroom_doc.get("user_name"),
-        "image_url": bathroom_doc["image_url"],
-        "sink_rating": bathroom_doc["sink_rating"],
-        "floor_rating": bathroom_doc["floor_rating"],
-        "toilet_rating": bathroom_doc["toilet_rating"],
-        "smell_rating": bathroom_doc["smell_rating"],
-        "niceness_rating": bathroom_doc["niceness_rating"],
-        "overall_rating": bathroom_doc["overall_rating"],
-        "location": bathroom_doc["location"],
-        "latitude": bathroom_doc.get("latitude"),
-        "longitude": bathroom_doc.get("longitude"),
-        "comments": bathroom_doc["comments"],
-        "timestamp": bathroom_doc["timestamp"]
+        \"id\": bathroom_doc[\"id\"],
+        \"user_id\": bathroom_doc.get(\"user_id\"),
+        \"user_name\": bathroom_doc.get(\"user_name\"),
+        \"image_url\": bathroom_doc[\"image_url\"],
+        \"sink_rating\": bathroom_doc[\"sink_rating\"],
+        \"floor_rating\": bathroom_doc[\"floor_rating\"],
+        \"toilet_rating\": bathroom_doc[\"toilet_rating\"],
+        \"smell_rating\": bathroom_doc[\"smell_rating\"],
+        \"niceness_rating\": bathroom_doc[\"niceness_rating\"],
+        \"overall_rating\": bathroom_doc[\"overall_rating\"],
+        \"location\": bathroom_doc[\"location\"],
+        \"latitude\": bathroom_doc.get(\"latitude\"),
+        \"longitude\": bathroom_doc.get(\"longitude\"),
+        \"comments\": bathroom_doc[\"comments\"],
+        \"timestamp\": bathroom_doc[\"timestamp\"]
     }
-    
+
     return response_doc
-    
-@app.get("/api/bathrooms")
+
+@app.get(\"/api/bathrooms\")
 async def get_bathrooms():
     bathrooms = []
-    async for bathroom in bathrooms_collection.find().sort("timestamp", -1):
+    async for bathroom in bathrooms_collection.find().sort(\"timestamp\", -1):
         bathrooms.append({
-            "id": bathroom["id"],
-            "user_id": bathroom.get("user_id"),
-            "user_name": bathroom.get("user_name"),
-            "image_url": bathroom["image_url"],
-            "sink_rating": bathroom["sink_rating"],
-            "floor_rating": bathroom["floor_rating"],
-            "toilet_rating": bathroom["toilet_rating"],
-            "smell_rating": bathroom["smell_rating"],
-            "niceness_rating": bathroom["niceness_rating"],
-            "overall_rating": bathroom["overall_rating"],
-            "location": bathroom["location"],
-            "latitude": bathroom.get("latitude"),
-            "longitude": bathroom.get("longitude"),
-            "comments": bathroom["comments"],
-            "timestamp": bathroom["timestamp"]
+            \"id\": bathroom[\"id\"],
+            \"user_id\": bathroom.get(\"user_id\"),
+            \"user_name\": bathroom.get(\"user_name\"),
+            \"image_url\": bathroom[\"image_url\"],
+            \"sink_rating\": bathroom[\"sink_rating\"],
+            \"floor_rating\": bathroom[\"floor_rating\"],
+            \"toilet_rating\": bathroom[\"toilet_rating\"],
+            \"smell_rating\": bathroom[\"smell_rating\"],
+            \"niceness_rating\": bathroom[\"niceness_rating\"],
+            \"overall_rating\": bathroom[\"overall_rating\"],
+            \"location\": bathroom[\"location\"],
+            \"latitude\": bathroom.get(\"latitude\"),
+            \"longitude\": bathroom.get(\"longitude\"),
+            \"comments\": bathroom[\"comments\"],
+            \"timestamp\": bathroom[\"timestamp\"]
         })
-    
+
     return bathrooms
 
-@app.get("/api/uploads/{filename}")
+@app.get(\"/api/uploads/{filename}\")
 async def get_upload(filename: str):
-    file_path = f"uploads/{filename}"
+    file_path = f\"uploads/{filename}\"
     if os.path.exists(file_path):
         return FileResponse(file_path)
     else:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail=\"File not found\")
 
-# Add this near the end of your file, before the if __name__ == "__main__": line
-@app.options("/{full_path:path}")
+# Add this near the end of your file, before the if __name__ == \"__main__\": line
+@app.options(\"/{full_path:path}\")
 async def options_handler(request, full_path: str):
-    return {
-        "message": "OK"
-    }
-    
-if __name__ == "__main__":
+    return {\"message\": \"OK\"}
+
+if __name__ == \"__main__\":
     import uvicorn
-    port = int(os.environ.get("PORT"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    port = int(os.environ.get(\"PORT\"))
+    uvicorn.run(app, host=\"0.0.0.0\", port=port)"
+Observation: Create successful: /tmp/main.py
