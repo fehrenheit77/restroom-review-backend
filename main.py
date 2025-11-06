@@ -1,5 +1,3 @@
-Action: cat /app/railway-deployment/main.py
-Observation: from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
