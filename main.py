@@ -59,6 +59,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     full_name: str
+    accept_terms: bool = False
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -70,6 +71,8 @@ class User(BaseModel):
     full_name: str
     profile_picture: Optional[str] = None
     is_verified: bool = False
+    terms_accepted: bool = False
+    terms_accepted_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -97,7 +100,16 @@ class BathroomResponse(BaseModel):
     longitude: Optional[float]
     comments: str
     timestamp: str
+    
+class TermsAcceptance(BaseModel):
+    accept_terms: bool
+    terms_version: str = "1.0"
 
+class TermsResponse(BaseModel):
+    terms_text: str
+    version: str
+    last_updated: str
+    
 # Helper functions
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -186,9 +198,97 @@ async def get_config():
         "google_client_id": os.environ.get('GOOGLE_CLIENT_ID', '')
     }
 
+@app.get("/api/terms", response_model=TermsResponse)
+async def get_terms():
+    terms_text = """
+RESTROOM REVIEW TERMS OF SERVICE
+
+Last Updated: July 2025
+
+1. ACCEPTANCE OF TERMS
+By using Restroom Review, you agree to these Terms of Service and our commitment to maintaining a respectful community.
+
+2. COMMUNITY STANDARDS
+We have ZERO TOLERANCE for:
+- Inappropriate, offensive, or explicit content
+- Harassment, bullying, or abusive behavior
+- Spam, fake reviews, or misleading information
+- Content that violates local laws or regulations
+
+3. USER RESPONSIBILITIES
+You agree to:
+- Provide honest, helpful restroom reviews
+- Respect other users and maintain civility
+- Report inappropriate content immediately
+- Only upload photos of public restroom facilities
+
+4. CONTENT MODERATION
+- All user content is subject to review
+- We respond to reports within 24 hours
+- Violations result in content removal and potential account suspension
+- Repeat offenders will be permanently banned
+
+5. PROHIBITED CONTENT
+The following is strictly prohibited:
+- Explicit, graphic, or inappropriate imagery
+- Personal attacks or harassment of other users
+- False or misleading reviews
+- Content promoting illegal activities
+
+6. REPORTING SYSTEM
+Users can report inappropriate content or behavior. We investigate all reports promptly and take appropriate action.
+
+7. ACCOUNT TERMINATION
+We reserve the right to suspend or terminate accounts that violate these terms without prior notice.
+
+8. PRIVACY
+Your privacy is important to us. We collect only necessary information to provide our service.
+
+9. CHANGES TO TERMS
+We may update these terms. Continued use constitutes acceptance of updated terms.
+
+10. CONTACT
+Report violations or concerns through our in-app reporting system.
+
+By using Restroom Review, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service.
+"""
+    
+    return TermsResponse(
+        terms_text=terms_text,
+        version="1.0",
+        last_updated="July 2025"
+    )
+
+@app.post("/api/terms/accept")
+async def accept_terms(
+    terms_data: TermsAcceptance,
+    current_user: dict = Depends(get_current_user)
+):
+    if not terms_data.accept_terms:
+        raise HTTPException(status_code=400, detail="Terms must be accepted")
+    
+    # Update user's terms acceptance
+    await users_collection.update_one(
+        {"id": current_user["id"]},
+        {
+            "$set": {
+                "terms_accepted": True,
+                "terms_accepted_date": datetime.utcnow(),
+                "terms_version": terms_data.terms_version,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return {"message": "Terms accepted successfully"}
+
 # Auth Routes (what your frontend expects)
 @app.post("/api/auth/register", response_model=Token)
 async def register_user(user_data: UserCreate):
+    # Check if user accepts terms
+    if not user_data.accept_terms:
+        raise HTTPException(status_code=400, detail="You must accept the Terms of Service to create an account")
+    
     # Check if user exists
     existing_user = await get_user_by_email(user_data.email)
     if existing_user:
@@ -204,6 +304,9 @@ async def register_user(user_data: UserCreate):
         "hashed_password": hashed_password,
         "full_name": user_data.full_name,
         "is_verified": False,
+        "terms_accepted": True,
+        "terms_accepted_date": datetime.utcnow(),
+        "terms_version": "1.0",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
@@ -218,6 +321,8 @@ async def register_user(user_data: UserCreate):
         email=user_data.email,
         full_name=user_data.full_name,
         is_verified=False,
+        terms_accepted=True,
+        terms_accepted_date=user_doc["terms_accepted_date"],
         created_at=user_doc["created_at"],
         updated_at=user_doc["updated_at"]
     )
@@ -254,6 +359,7 @@ async def login_user(user_data: UserLogin):
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
 @app.get("/api/auth/me", response_model=User)
+@app.get("/api/auth/me", response_model=User)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     return User(
         id=current_user["id"],
@@ -261,6 +367,8 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         full_name=current_user["full_name"],
         profile_picture=current_user.get("profile_picture"),
         is_verified=current_user.get("is_verified", False),
+        terms_accepted=current_user.get("terms_accepted", False),
+        terms_accepted_date=current_user.get("terms_accepted_date"),
         created_at=current_user["created_at"],
         updated_at=current_user["updated_at"]
     )
