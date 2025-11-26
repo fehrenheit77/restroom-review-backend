@@ -393,11 +393,56 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         full_name=current_user["full_name"],
         profile_picture=current_user.get("profile_picture"),
         is_verified=current_user.get("is_verified", False),
-        terms_accepted=current_user.get("terms_accepted", False),
-        terms_accepted_date=current_user.get("terms_accepted_date"),
         created_at=current_user["created_at"],
         updated_at=current_user["updated_at"]
     )
+
+@app.delete("/api/auth/delete-account")
+async def delete_account(current_user: dict = Depends(get_current_user)):
+    """
+    Delete user account while keeping their content (reviews)
+    - Anonymizes user data
+    - Keeps reviews but marks them as from "Deleted User"
+    - Keeps user_id for data integrity
+    """
+    user_id = current_user["id"]
+    
+    # Anonymize the user record
+    anonymized_data = {
+        "email": f"deleted_{user_id}@deleted.com",
+        "full_name": "Deleted User",
+        "is_deleted": True,
+        "deleted_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    
+    # Remove sensitive fields
+    unset_fields = {
+        "hashed_password": "",
+        "google_id": "",
+        "apple_id": "",
+        "profile_picture": ""
+    }
+    
+    # Update user record
+    await users_collection.update_one(
+        {"id": user_id},
+        {
+            "$set": anonymized_data,
+            "$unset": unset_fields
+        }
+    )
+    
+    # Update all reviews by this user to show "Deleted User"
+    await bathrooms_collection.update_many(
+        {"user_id": user_id},
+        {"$set": {"user_name": "Deleted User"}}
+    )
+    
+    return {
+        "message": "Account deleted successfully. Your reviews will remain visible but anonymized.",
+        "status": "deleted"
+    }
 
 @app.post("/api/auth/google", response_model=Token)
 async def google_auth(auth_request: GoogleAuthRequest):
