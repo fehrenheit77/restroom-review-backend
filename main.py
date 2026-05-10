@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+import json as json_lib
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
@@ -19,6 +20,7 @@ from pathlib import Path
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
 DATABASE_NAME = os.environ.get('DATABASE_NAME', 'restroom_review')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://restroom-review-frontend-production.up.railway.app')
 
 # FastAPI app
 app = FastAPI(title="Restroom Review API", version="1.0.0")
@@ -615,10 +617,100 @@ async def apple_auth(auth_request: AppleAuthRequest):
         
         return Token(access_token=access_token, token_type="bearer", user=user_response)
     
-    except HTTPException:
+      except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Apple authentication failed: {str(e)}")
+
+
+# ADDED: APPLE SIGN-IN REDIRECT CALLBACK (handles form_post from Apple)
+@app.post("/api/auth/apple-callback")
+async def apple_callback(
+    code: str = Form(None),
+    id_token: str = Form(None),
+    state: str = Form(None),
+    user: str = Form(None),
+):
+    """
+    Handles Apple Sign-In `form_post` redirect callback.
+    Apple POSTs the credentials here, we create/find the user,
+    issue our JWT, then 303-redirect back to the frontend with the token.
+    """
+    try:
+        if not id_token:
+            return RedirectResponse(
+                url=f"{FRONTEND_URL}/?auth_error=missing_token",
+                status_code=303,
+            )
+
+        decoded = jwt.decode(id_token, options={"verify_signature": False})
+        apple_user_id = decoded.get('sub')
+        email = decoded.get('email')
+
+        if not apple_user_id:
+            return RedirectResponse(
+                url=f"{FRONTEND_URL}/?auth_error=invalid_token",
+                status_code=303,
+            )
+
+        full_name = email.split('@')[0] if email else "Apple User"
+        if user:
+            try:
+                user_obj = json_lib.loads(user)
+                name_data = user_obj.get('name', {}) or {}
+                fn = (name_data.get('firstName') or '').strip()
+                ln = (name_data.get('lastName') or '').strip()
+                if fn or ln:
+                    full_name = f"{fn} {ln}".strip()
+            except Exception:
+                pass
+
+        existing_user = await users_collection.find_one({"apple_id": apple_user_id})
+
+        if existing_user:
+            update_fields = {"updated_at": datetime.utcnow()}
+            if email and not existing_user.get('email'):
+                update_fields['email'] = email
+            if full_name and full_name != "Apple User" and not existing_user.get('full_name'):
+                update_fields['full_name'] = full_name
+            await users_collection.update_one(
+                {"apple_id": apple_user_id},
+                {"$set": update_fields},
+            )
+            user_doc = await users_collection.find_one({"apple_id": apple_user_id})
+        else:
+            if not email:
+                return RedirectResponse(
+                    url=f"{FRONTEND_URL}/?auth_error=email_required",
+                    status_code=303,
+                )
+            user_id = str(uuid.uuid4())
+            user_doc = {
+                "id": user_id,
+                "email": email,
+                "full_name": full_name,
+                "apple_id": apple_user_id,
+                "is_verified": True,
+                "terms_accepted": True,
+                "terms_accepted_date": datetime.utcnow(),
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }
+            await users_collection.insert_one(user_doc)
+            user_doc.pop("_id", None)
+
+        access_token = create_jwt_token(user_doc["id"])
+
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/?apple_token={access_token}",
+            status_code=303,
+        )
+
+    except Exception as e:
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/?auth_error={str(e)[:120]}",
+            status_code=303,
+        )
 
 # Bathroom Routes
 @app.post("/api/bathrooms")
